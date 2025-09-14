@@ -312,6 +312,16 @@
     return order;
   }
 
+  const HUD_UPDATE_THRESHOLD = 0.5; // in-game minutes
+  let lastHUD = {
+    minutes: -Infinity,
+    money: null,
+    energyPct: null,
+    energyCost: null,
+    reputation: null,
+    running: null
+  };
+
   function tick(delta) {
     if (!state.running) return;
 
@@ -347,7 +357,15 @@
 
     if (Math.random() < (0.001 + state.reputation * 0.0001) * delta) generateOrder();
 
-    updateHUD();
+    const timeChanged = Math.abs(state.minutes - lastHUD.minutes) >= HUD_UPDATE_THRESHOLD;
+    const moneyChanged = state.money !== lastHUD.money;
+    const energyChanged = Math.round(state.energyPct) !== lastHUD.energyPct;
+    const energyCostChanged = Math.round(state.energyCostToday * 100) / 100 !== lastHUD.energyCost;
+    const repChanged = state.reputation !== lastHUD.reputation;
+    const runningChanged = state.running !== lastHUD.running;
+    if (timeChanged || moneyChanged || energyChanged || energyCostChanged || repChanged || runningChanged) {
+      updateHUD();
+    }
     draw();
   }
 
@@ -473,6 +491,14 @@
     const dayProgress = Math.max(0, Math.min(1, (state.minutes - 360) / (16 * 60)));
     $('#dayFill').style.width = `${dayProgress * 100}%`;
     $('#paused').classList.toggle('show', !state.running);
+    lastHUD = {
+      minutes: state.minutes,
+      money: state.money,
+      energyPct: Math.round(state.energyPct),
+      energyCost: Math.round(state.energyCostToday * 100) / 100,
+      reputation: state.reputation,
+      running: state.running
+    };
   }
 
   let currentTab = 'orders';
