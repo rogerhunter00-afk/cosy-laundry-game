@@ -35,8 +35,8 @@
 
     .section{margin-bottom:20px}
     .h{font-size:12px;font-weight:800;color:#475569;letter-spacing:.12em;text-transform:uppercase;margin:8px 6px 6px 6px}
-    #dashboard{display:grid;grid-template-columns:1fr 1fr;gap:16px;height:calc(100vh - 56px);padding:20px}
-    #ordersColumn,#machinesColumn{display:flex;flex-direction:column;gap:12px;overflow:auto}
+    #worldWrap{display:none}
+    #dashboard{position:fixed;top:56px;left:0;bottom:0;right:380px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;padding:20px;overflow:auto}
 
     .order-card,.order{border:1px solid var(--grid);border-radius:12px;padding:12px;background:var(--card);display:grid;gap:8px;transition:box-shadow .2s,transform .2s;cursor:grab}
     .order-card:hover,.order:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1);transform:translateY(-1px)}
@@ -180,6 +180,27 @@
       <g id="viewport"></g>
     </svg>
     <div id="paused">⏸ Paused</div>
+  </div>
+
+  <div id="dashboard">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" id="dashboard-cash">£1,000</div>
+        <div class="stat-label">Cash</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="dashboard-energy">100%</div>
+        <div class="stat-label">Energy</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="dashboard-reputation">0</div>
+        <div class="stat-label">Reputation</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="dashboard-orders">0</div>
+        <div class="stat-label">Orders</div>
+      </div>
+    </div>
   </div>
 
   <div id="sidebar">
@@ -497,6 +518,15 @@
     state.entities.push(entity); return true;
   }
 
+  function renderDashboard() {
+    const cashEl = $('#dashboard-cash');
+    if (!cashEl) return;
+    cashEl.textContent = fmtMoney(state.money);
+    $('#dashboard-energy').textContent = Math.round(state.energyPct) + '%';
+    $('#dashboard-reputation').textContent = state.reputation;
+    $('#dashboard-orders').textContent = state.orders.length;
+  }
+
   function updateHUD() {
     const hh = Math.floor(state.minutes / 60);
     const mm = String(Math.floor(state.minutes % 60)).padStart(2, '0');
@@ -507,6 +537,7 @@
     const dayProgress = Math.max(0, Math.min(1, (state.minutes - 360) / (16 * 60)));
     $('#dayFill').style.width = `${dayProgress * 100}%`;
     $('#paused').classList.toggle('show', !state.running);
+    renderDashboard();
     lastHUD = {
       minutes: state.minutes,
       money: state.money,
