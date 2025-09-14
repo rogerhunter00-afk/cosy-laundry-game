@@ -825,18 +825,15 @@
   }
 
   // ===== UI bindings / tips =====
-  function updatePauseButton(){ const btn = $('#pause'); btn.textContent = state.running ? '⏸ Pause' : '▶ Resume'; btn.setAttribute('aria-pressed', String(state.running)); }
+  function updatePauseButton(){
+    const btn = $('#pause');
+    if (!btn) return;
+    btn.textContent = state.running ? '⏸ Pause' : '▶ Resume';
+    btn.setAttribute('aria-pressed', String(state.running));
+  }
   function togglePause(){ state.running = !state.running; updatePauseButton(); updateHUD(); }
   function showTip(msg){ const t = $('#tip'); t.textContent = msg; t.classList.add('show'); }
   function hideTip(){ $('#tip').classList.remove('show'); }
-
-  const saveBtn = $('#save');
-  if (storageAvailable()) saveBtn.addEventListener('click', save);
-  else { saveBtn.disabled = true; showNotification('Saving unavailable', 'error'); }
-  $('#newday').addEventListener('click', () => { if (state.minutes <= 6*60) state.minutes = 6*60; state.running = true; updatePauseButton(); updateHUD(); });
-  $('#pause').addEventListener('click', togglePause);
-
-  $('#speed').addEventListener('input', (e) => { state.speed = parseFloat(e.target.value); $('#speedVal').textContent = state.speed.toFixed(1) + '×'; });
 
   // ===== Toast =====
   let toastTimer = null; function toast(message, duration = 2000) { const toastEl = $('#toast'); toastEl.textContent = message; toastEl.style.opacity = '1'; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.style.opacity = '0'; }, duration); }
@@ -849,8 +846,41 @@
     initializeTabs();
     const loaded = load();
     if (!loaded) placeDefaultMachines();
-    state.speed = parseFloat($('#speed').value); $('#speedVal').textContent = state.speed.toFixed(1) + '×';
-    updateHUD(); setTab('orders'); draw(); updatePauseButton();
+
+    const saveBtn = $('#save');
+    if (saveBtn) {
+      if (storageAvailable()) saveBtn.addEventListener('click', save);
+      else { saveBtn.disabled = true; showNotification('Saving unavailable', 'error'); }
+    }
+
+    const newDayBtn = $('#newday');
+    if (newDayBtn) {
+      newDayBtn.addEventListener('click', () => {
+        if (state.minutes <= 6*60) state.minutes = 6*60;
+        state.running = true;
+        updatePauseButton();
+        updateHUD();
+      });
+    }
+
+    const pauseBtn = $('#pause');
+    if (pauseBtn) pauseBtn.addEventListener('click', togglePause);
+
+    const speedInput = $('#speed');
+    const speedVal = $('#speedVal');
+    if (speedInput) {
+      state.speed = parseFloat(speedInput.value);
+      if (speedVal) speedVal.textContent = state.speed.toFixed(1) + '×';
+      speedInput.addEventListener('input', (e) => {
+        state.speed = parseFloat(e.target.value);
+        if (speedVal) speedVal.textContent = state.speed.toFixed(1) + '×';
+      });
+    }
+
+    updateHUD();
+    setTab('orders');
+    draw();
+    updatePauseButton();
     requestAnimationFrame(gameLoop);
     showNotification('🧺 Welcome to Cozy Laundry Enhanced!', 'success', 4000);
   }
@@ -876,7 +906,7 @@
     }
   });
 
-  initialize();
+  window.addEventListener('DOMContentLoaded', initialize);
 
   // Dev helpers - exposed only in non-production builds
   if (typeof process === 'undefined' || process.env.NODE_ENV !== 'production') {
