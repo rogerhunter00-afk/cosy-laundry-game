@@ -878,15 +878,17 @@
 
   initialize();
 
-  // Dev helpers
-  window.laundryGame = {
-    state,
-    addMoney: (amount) => { state.money += amount; updateHUD(); showNotification(`Added ${fmtMoney(amount)}`, 'success'); },
-    addReputation: (amount) => { state.reputation += amount; updateHUD(); showNotification(`Added ${amount} reputation`, 'success'); },
-    completeAllOrders: () => { state.orders.forEach(order => completeOrder(order)); state.orders = []; renderOrders(); },
-    breakAllMachines: () => { state.entities.forEach(entity => entity.broken = true); draw(); showNotification('All machines broken!', 'error'); },
-    fixAllMachines: () => { state.entities.forEach(entity => { entity.broken = false; entity.efficiency = 1; }); draw(); showNotification('All machines repaired!', 'success'); },
-    skipToNextDay: () => { state.minutes = 22 * 60; tick(0); }
-  };
+  // Dev helpers - exposed only in non-production builds
+  if (typeof process === 'undefined' || process.env.NODE_ENV !== 'production') {
+    window.laundryGame = {
+      state,
+      addMoney: (amount) => { state.money += amount; updateHUD(); showNotification(`Added ${fmtMoney(amount)}`, 'success'); },
+      addReputation: (amount) => { state.reputation += amount; updateHUD(); showNotification(`Added ${amount} reputation`, 'success'); },
+      completeAllOrders: () => { state.orders.forEach(order => completeOrder(order)); state.orders = []; renderOrders(); },
+      breakAllMachines: () => { state.entities.forEach(entity => entity.broken = true); draw(); showNotification('All machines broken!', 'error'); },
+      fixAllMachines: () => { state.entities.forEach(entity => { entity.broken = false; entity.efficiency = 1; }); draw(); showNotification('All machines repaired!', 'success'); },
+      skipToNextDay: () => { state.minutes = 22 * 60; tick(0); }
+    };
+  }
 })();
 </script>
