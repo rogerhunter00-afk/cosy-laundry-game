@@ -889,4 +889,3 @@
     skipToNextDay: () => { state.minutes = 22 * 60; tick(0); }
   };
 })();
-</script>
