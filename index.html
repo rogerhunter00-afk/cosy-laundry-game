@@ -4,106 +4,112 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cozy Laundry — Enhanced Factory View</title>
-  <meta name="color-scheme" content="light" />
+  <meta name="color-scheme" content="dark light" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <div id="hud">
-    <div class="row">
-      <div class="badgel">
-        <strong style="font-size:16px">🧺 Cozy Laundry Enhanced</strong>
-        <span id="dayLabel" class="pill">Day 1 — 06:00</span>
-        <div class="pill">
-          <label for="speed">Speed</label>
-          <input id="speed" type="range" min="0.1" max="3" step="0.1" value="0.8" style="vertical-align:middle;margin:0 6px">
-          <span id="speedVal">0.8×</span>
+  <div id="app">
+    <header id="hud">
+      <div class="row">
+        <div class="badgel">
+          <strong style="font-size:16px">🧺 Cozy Laundry Enhanced</strong>
+          <span id="dayLabel" class="pill">Day 1 — 06:00</span>
+          <div class="pill">
+            <label for="speed">Speed</label>
+            <input id="speed" type="range" min="0.1" max="3" step="0.1" value="0.8" style="vertical-align:middle;margin:0 6px">
+            <span id="speedVal">0.8×</span>
+          </div>
+          <button id="pause" class="btn ghost" aria-pressed="false">⏸ Pause</button>
         </div>
-        <button id="pause" class="btn ghost" aria-pressed="false">⏸ Pause</button>
+        <div class="badgel">
+          <span id="cash" class="pill">💰 £1,000</span>
+          <span id="energy" class="pill" title="≈£0.18 per kWh">⚡ 100% (£0.00)</span>
+          <span id="reputation" class="pill">⭐ 0</span>
+          <button id="save" class="btn ghost">💾 Save</button>
+          <button id="newday" class="btn success">▶ Start Day</button>
+        </div>
       </div>
-      <div class="badgel">
-        <span id="cash" class="pill">💰 £1,000</span>
-        <span id="energy" class="pill" title="≈£0.18 per kWh">⚡ 100% (£0.00)</span>
-        <span id="reputation" class="pill">⭐ 0</span>
-        <button id="save" class="btn ghost">💾 Save</button>
-        <button id="newday" class="btn success">▶ Start Day</button>
-      </div>
-    </div>
-    <div class="daybar"><span id="dayFill"></span></div>
-  </div>
+      <div class="daybar"><span id="dayFill"></span></div>
+    </header>
 
-  <div id="worldWrap">
-    <svg id="worldSvg" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="gridGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#f3f4f6"/>
-          <stop offset="1" stop-color="#eef2f7"/>
-        </linearGradient>
-        <linearGradient id="progressBlue" x1="0" x2="1">
-          <stop offset="0" stop-color="#60a5fa"/>
-          <stop offset="1" stop-color="#3b82f6"/>
-        </linearGradient>
-        <linearGradient id="progressGreen" x1="0" x2="1">
-          <stop offset="0" stop-color="#10b981"/>
-          <stop offset="1" stop-color="#34d399"/>
-        </linearGradient>
-        <pattern id="brokenHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-          <rect width="8" height="8" fill="#fee2e2"/>
-          <rect width="4" height="8" fill="#fecaca"/>
-        </pattern>
-        <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#0b0f1a" flood-opacity="0.15"/>
-        </filter>
-        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-          <feMerge>
-            <feMergeNode in="coloredBlur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-      </defs>
-      <g id="viewport"></g>
-    </svg>
-    <div id="paused">⏸ Paused</div>
-  </div>
+    <div class="app-body">
+      <aside id="sidebar">
+        <div class="tabs">
+          <div class="tab active" data-tab="orders">📋 Orders</div>
+          <div class="tab" data-tab="build">🏗️ Build</div>
+          <div class="tab" data-tab="upgrades">⚡ Upgrades</div>
+          <div class="tab" data-tab="stats">📊 Stats</div>
+        </div>
+        <div class="panel" id="panel"></div>
+      </aside>
 
-  <div id="dashboard">
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-value" id="dashboard-cash">£1,000</div>
-        <div class="stat-label">Cash</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value" id="dashboard-energy">100%</div>
-        <div class="stat-label">Energy</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value" id="dashboard-reputation">0</div>
-        <div class="stat-label">Reputation</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value" id="dashboard-orders">0</div>
-        <div class="stat-label">Orders</div>
-      </div>
-    </div>
-  </div>
+      <main id="main">
+        <section id="dashboard">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="dashboard-cash">£1,000</div>
+              <div class="stat-label">Cash</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="dashboard-energy">100%</div>
+              <div class="stat-label">Energy</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="dashboard-reputation">0</div>
+              <div class="stat-label">Reputation</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="dashboard-orders">0</div>
+              <div class="stat-label">Orders</div>
+            </div>
+          </div>
+        </section>
 
-  <div id="sidebar">
-    <div class="tabs">
-      <div class="tab active" data-tab="orders">📋 Orders</div>
-      <div class="tab" data-tab="build">🏗️ Build</div>
-      <div class="tab" data-tab="upgrades">⚡ Upgrades</div>
-      <div class="tab" data-tab="stats">📊 Stats</div>
+        <section id="worldWrap">
+          <svg id="worldSvg" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="gridGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#f3f4f6"/>
+                <stop offset="1" stop-color="#eef2f7"/>
+              </linearGradient>
+              <linearGradient id="progressBlue" x1="0" x2="1">
+                <stop offset="0" stop-color="#60a5fa"/>
+                <stop offset="1" stop-color="#3b82f6"/>
+              </linearGradient>
+              <linearGradient id="progressGreen" x1="0" x2="1">
+                <stop offset="0" stop-color="#10b981"/>
+                <stop offset="1" stop-color="#34d399"/>
+              </linearGradient>
+              <pattern id="brokenHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="8" height="8" fill="#fee2e2"/>
+                <rect width="4" height="8" fill="#fecaca"/>
+              </pattern>
+              <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#0b0f1a" flood-opacity="0.15"/>
+              </filter>
+              <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+            <g id="viewport"></g>
+          </svg>
+          <div id="paused">⏸ Paused</div>
+        </section>
+      </main>
     </div>
-    <div class="panel" id="panel"></div>
   </div>
 
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="tip" class="overlay-tip"></div>
   <div class="help" title="Keyboard shortcuts">
-    <div><strong>Keys:</strong> <kbd>Space</kbd>/<kbd>P</kbd> Pause • <kbd>1-4</kbd> Tabs • <kbd>A</kbd> Add Order • <kbd>Ctrl/⌘+S</kbd> Save • <kbd>Esc</kbd> Cancel Mode</div>
+    <div><strong>Keys:</strong> <kbd>Space</kbd>/<kbd>P</kbd> Pause • <kbd>1-4</kbd> Tabs • <kbd>A</kbd> Add Order • <kbd>Ctrl/⌘S</kbd> Save • <kbd>Esc</kbd> Cancel Mode</div>
     <div>Drag orders onto machines to assign them</div>
   </div>
-<script src="js/utils.js"></script>
-<script src="js/game.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/game.js"></script>
 </body>
 </html>
