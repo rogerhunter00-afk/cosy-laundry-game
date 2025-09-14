@@ -54,6 +54,9 @@
 
     .machine-card{border:1px solid var(--grid);border-radius:12px;padding:12px;margin:6px;background:#fff;transition:all 0.2s}
     .machine-card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1)}
+    .machine-card.drag-over{box-shadow:0 0 0 2px #0b67c2 inset}
+    .machine-card.drop-success{border-color:#10b981;background:#f0fdf4}
+    .machine-card.drop-fail{border-color:#ef4444;background:#fef2f2}
     .machine-price{color:var(--bad);font-weight:700}
     .machine-specs{font-size:12px;color:var(--muted);margin:6px 0}
 
@@ -506,6 +509,10 @@
       sortedOrders.forEach(order => {
         const el = document.createElement('div');
         el.className = `order ${order.priority.toLowerCase()}`;
+        el.draggable = true;
+        el.addEventListener('dragstart', (ev) => {
+          ev.dataTransfer.setData('text/plain', String(order.id));
+        });
 
         const timeLeft = Math.max(0, order.deadline - state.minutes);
         const hoursLeft = Math.floor(timeLeft / 60);
@@ -582,6 +589,70 @@
     }
   }
 
+  function renderMachineCard(entity, index) {
+    const type = MACHINE_TYPES[entity.kind];
+    const efficiency = Math.round(entity.efficiency * 100);
+    const el = document.createElement('div');
+    el.className = 'machine-card';
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <strong>${type.label} #${index + 1}</strong>
+          <div class="machine-specs">Status: ${entity.broken ? '🔧 Broken' : entity.job ? '⚡ Working' : '⏸ Idle'}</div>
+          <div class="efficiency-bar"><div class="efficiency-fill" style="width:${efficiency}%"></div></div>
+          <div class="machine-specs">Efficiency: ${efficiency}%</div>
+        </div>
+        <div style="text-align:right">
+          ${entity.broken ? `<button class="btn danger">🔧 Repair (£50)</button>` : `<button class="btn ghost">📍 Locate</button>`}
+        </div>
+      </div>`;
+    const button = el.querySelector('button');
+    if (entity.broken) {
+      button.addEventListener('click', () => {
+        if (state.money >= 50) {
+          state.money -= 50; entity.broken = false; entity.efficiency = Math.min(1, entity.efficiency + 0.1);
+          showNotification('Machine repaired!', 'success'); renderBuild(); updateHUD();
+        } else showNotification('Not enough money to repair!', 'error');
+      });
+    } else {
+      button.addEventListener('click', () => { state.selected = entity.id; showNotification('Machine highlighted in factory view', 'info'); draw(); });
+    }
+
+    el.addEventListener('dragover', ev => { ev.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', () => { el.classList.remove('drag-over'); });
+    el.addEventListener('drop', ev => {
+      ev.preventDefault();
+      el.classList.remove('drag-over');
+      const orderId = parseInt(ev.dataTransfer.getData('text/plain'), 10);
+      const order = state.orderBook[orderId];
+      if (!order || entity.broken || entity.job) {
+        toast('Cannot assign order here');
+        el.classList.add('drop-fail'); setTimeout(() => el.classList.remove('drop-fail'), 600);
+        return;
+      }
+      const machineType = entity.kind.includes('washer') ? 'washer' : entity.kind.includes('dryer') ? 'dryer' : 'folder';
+      const validStage = (machineType === 'washer' && order.stage === 'queue') ||
+                         (machineType === 'dryer' && order.stage === 'dry') ||
+                         (machineType === 'folder' && order.stage === 'fold');
+      if (!validStage) {
+        toast('Order not ready for this machine');
+        el.classList.add('drop-fail'); setTimeout(() => el.classList.remove('drop-fail'), 600);
+        return;
+      }
+      const req = machineType === 'washer' ? order.washerMin : machineType === 'dryer' ? order.dryerMin : order.foldMin;
+      assignJob(entity, order, req);
+      order.stage = machineType === 'washer' ? 'washing' : machineType === 'dryer' ? 'drying' : 'folding';
+      const idx = state.orders.findIndex(o => o.id === order.id);
+      if (idx > -1) state.orders.splice(idx, 1);
+      renderBuild();
+      renderOrders();
+      draw();
+      toast(`Order #${order.id} assigned to ${type.label}`);
+      el.classList.add('drop-success'); setTimeout(() => el.classList.remove('drop-success'), 600);
+    });
+    return el;
+  }
+
   function renderBuild() {
     const host = $('#panel'); if (currentTab !== 'build') return; host.innerHTML = '';
 
@@ -618,31 +689,7 @@
 
     if (state.entities.length > 0) {
       state.entities.forEach((entity, index) => {
-        const type = MACHINE_TYPES[entity.kind];
-        const efficiency = Math.round(entity.efficiency * 100);
-        const el = document.createElement('div');
-        el.className = 'machine-card';
-        el.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div>
-              <strong>${type.label} #${index + 1}</strong>
-              <div class="machine-specs">Status: ${entity.broken ? '🔧 Broken' : entity.job ? '⚡ Working' : '⏸ Idle'}</div>
-              <div class="efficiency-bar"><div class="efficiency-fill" style="width:${efficiency}%"></div></div>
-              <div class="machine-specs">Efficiency: ${efficiency}%</div>
-            </div>
-            <div style="text-align:right">
-              ${entity.broken ? `<button class="btn danger">🔧 Repair (£50)</button>` : `<button class="btn ghost">📍 Locate</button>`}
-            </div>
-          </div>`;
-        const button = el.querySelector('button');
-        if (entity.broken) {
-          button.addEventListener('click', () => {
-            if (state.money >= 50) { state.money -= 50; entity.broken = false; entity.efficiency = Math.min(1, entity.efficiency + 0.1); showNotification('Machine repaired!', 'success'); renderBuild(); updateHUD(); }
-            else showNotification('Not enough money to repair!', 'error');
-          });
-        } else {
-          button.addEventListener('click', () => { state.selected = entity.id; showNotification('Machine highlighted in factory view', 'info'); draw(); });
-        }
+        const el = renderMachineCard(entity, index);
         managementSection.appendChild(el);
       });
     } else {
