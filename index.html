@@ -512,33 +512,83 @@
         const minutesLeft = Math.floor(timeLeft % 60);
         const isUrgent = timeLeft < 60;
 
-        el.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <strong>#${order.id} — ${order.label}</strong>
-            <div class="badgel">
-              <span class="tag ${order.priority.toLowerCase()}">${order.priority}</span>
-              ${order.priority === 'Rush' ? '<span class="tag">+50% Pay</span>' : ''}
-              ${order.priority === 'Urgent' ? '<span class="tag">+20% Pay</span>' : ''}
-            </div>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0">
-            <span style="color:${isUrgent ? '#ef4444' : '#6b7280'}">
-              ${order.stage === 'queue' ? 'Awaiting assignment' : order.stage === 'dry' ? 'Ready for drying' : order.stage === 'fold' ? 'Ready for folding' : order.stage}
-            </span>
-            <span style="color:${isUrgent ? '#ef4444' : '#10b981'};font-weight:600">
-              ${fmtMoney(order.pay)} • ${hoursLeft}h ${minutesLeft}m left
-            </span>
-          </div>
-          <div class="badgel">
-            <button class="btn ghost btn-assign">🎯 Assign</button>
-            <button class="btn ghost btn-cancel">❌ Cancel</button>
-          </div>
-        `;
+        // Top row: order label and priority tags
+        const topRow = document.createElement('div');
+        topRow.style.display = 'flex';
+        topRow.style.justifyContent = 'space-between';
+        topRow.style.alignItems = 'center';
 
-        el.querySelector('.btn-assign').addEventListener('click', () => {
+        const strong = document.createElement('strong');
+        strong.textContent = `#${order.id} — ${order.label}`;
+        topRow.appendChild(strong);
+
+        const badgel = document.createElement('div');
+        badgel.className = 'badgel';
+
+        const priorityTag = document.createElement('span');
+        priorityTag.className = `tag ${order.priority.toLowerCase()}`;
+        priorityTag.textContent = order.priority;
+        badgel.appendChild(priorityTag);
+
+        if (order.priority === 'Rush') {
+          const rush = document.createElement('span');
+          rush.className = 'tag';
+          rush.textContent = '+50% Pay';
+          badgel.appendChild(rush);
+        }
+        if (order.priority === 'Urgent') {
+          const urgent = document.createElement('span');
+          urgent.className = 'tag';
+          urgent.textContent = '+20% Pay';
+          badgel.appendChild(urgent);
+        }
+        topRow.appendChild(badgel);
+        el.appendChild(topRow);
+
+        // Middle row: status and time/pay info
+        const midRow = document.createElement('div');
+        midRow.style.display = 'flex';
+        midRow.style.justifyContent = 'space-between';
+        midRow.style.alignItems = 'center';
+        midRow.style.margin = '6px 0';
+
+        const statusSpan = document.createElement('span');
+        statusSpan.style.color = isUrgent ? '#ef4444' : '#6b7280';
+        statusSpan.textContent = (
+          order.stage === 'queue' ? 'Awaiting assignment' :
+          order.stage === 'dry' ? 'Ready for drying' :
+          order.stage === 'fold' ? 'Ready for folding' :
+          order.stage
+        );
+        midRow.appendChild(statusSpan);
+
+        const paySpan = document.createElement('span');
+        paySpan.style.color = isUrgent ? '#ef4444' : '#10b981';
+        paySpan.style.fontWeight = '600';
+        paySpan.textContent = `${fmtMoney(order.pay)} • ${hoursLeft}h ${minutesLeft}m left`;
+        midRow.appendChild(paySpan);
+        el.appendChild(midRow);
+
+        // Bottom row: action buttons
+        const buttonRow = document.createElement('div');
+        buttonRow.className = 'badgel';
+
+        const assignBtn = document.createElement('button');
+        assignBtn.className = 'btn ghost btn-assign';
+        assignBtn.textContent = '🎯 Assign';
+        buttonRow.appendChild(assignBtn);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn ghost btn-cancel';
+        cancelBtn.textContent = '❌ Cancel';
+        buttonRow.appendChild(cancelBtn);
+
+        el.appendChild(buttonRow);
+
+        assignBtn.addEventListener('click', () => {
           state.mode = 'assign'; selectingOrder = order; showTip('Click an idle machine to assign this order. Esc to cancel.');
         });
-        el.querySelector('.btn-cancel').addEventListener('click', () => {
+        cancelBtn.addEventListener('click', () => {
           const penalty = Math.round(order.pay * 0.1);
           state.money = Math.max(0, state.money - penalty);
           state.customerSatisfaction = Math.max(0, state.customerSatisfaction - 5);
