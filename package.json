@@ -1,0 +1,16 @@
+{
+  "name": "cosy-laundry-game",
+  "version": "1.0.0",
+  "description": "Cozy Laundry is a small factory management prototype played in the browser. The interface now focuses on a live dashboard showing key stats alongside a sidebar for orders, construction, upgrades and stats.",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "node test/pickWeighted.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
