@@ -899,7 +899,15 @@
   function save() {
     const { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades } = state;
     const saveData = { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades, savedAt: Date.now() };
-    localStorage.setItem('cozyLaundryEnhanced', JSON.stringify(saveData)); showNotification('Game saved successfully!', 'success');
+    try {
+      localStorage.setItem('cozyLaundryEnhanced', JSON.stringify(saveData));
+      showNotification('Game saved successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to save game:', err);
+      showNotification('Failed to save game', 'error');
+      const btn = $('#save');
+      if (btn) btn.disabled = true;
+    }
   }
   function load() {
     try {
@@ -910,13 +918,27 @@
     } catch (err) { console.error('Failed to load save:', err); showNotification('Failed to load save file', 'error'); return false; }
   }
 
+  function storageAvailable() {
+    try {
+      const test = '__storage_test__';
+      localStorage.setItem(test, '1');
+      localStorage.removeItem(test);
+      return true;
+    } catch (err) {
+      console.error('Local storage unavailable:', err);
+      return false;
+    }
+  }
+
   // ===== UI bindings / tips =====
   function updatePauseButton(){ const btn = $('#pause'); btn.textContent = state.running ? '⏸ Pause' : '▶ Resume'; btn.setAttribute('aria-pressed', String(state.running)); }
   function togglePause(){ state.running = !state.running; updatePauseButton(); updateHUD(); }
   function showTip(msg){ const t = $('#tip'); t.textContent = msg; t.classList.add('show'); }
   function hideTip(){ $('#tip').classList.remove('show'); }
 
-  $('#save').addEventListener('click', save);
+  const saveBtn = $('#save');
+  if (storageAvailable()) saveBtn.addEventListener('click', save);
+  else { saveBtn.disabled = true; showNotification('Saving unavailable', 'error'); }
   $('#newday').addEventListener('click', () => { if (state.minutes <= 6*60) state.minutes = 6*60; state.running = true; updatePauseButton(); updateHUD(); });
   $('#pause').addEventListener('click', togglePause);
 
