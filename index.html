@@ -9,7 +9,6 @@
     :root{
       --ink:#0b0f1a; --muted:#6b7280; --bg:#f6f8fb; --card:#ffffff; --brand:#0b67c2; --ring:#c7d2fe; --grid:#e6e9ef; --shadow:0 12px 28px rgba(2,6,23,.08);
       --good:#10b981; --warn:#f59e0b; --bad:#ef4444; --blue:#3b82f6; --blue2:#60a5fa;
-      --tile:#e5e7eb; --tile2:#f3f4f6; --belt:#cbd5e1;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -27,11 +26,6 @@
     .daybar{height:6px;background:#eef2ff;border-top:1px solid #e5e7eb}
     .daybar>span{display:block;height:100%;width:0;background:linear-gradient(90deg,#60a5fa,#93c5fd);transition:width 0.5s ease}
 
-    #worldWrap{position:fixed;inset:56px 380px 0 0; background:var(--tile2);}
-    #worldSvg{width:100%;height:100%;display:block}
-    #paused{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.15);font-size:42px;font-weight:900;color:#0f172a;z-index:5}
-    #paused.show{display:flex}
-
     #sidebar{position:fixed;top:56px;right:0;bottom:0;width:380px;background:var(--card);border-left:1px solid var(--grid);box-shadow:var(--shadow);display:grid;grid-template-rows:auto 1fr;padding:10px}
     .tabs{display:flex;gap:6px}
     .tab{flex:1 0 auto;border:1px solid var(--grid);background:#fff;padding:8px 12px;border-radius:10px;cursor:pointer;text-align:center;transition:all 0.2s;font-weight:600}
@@ -41,10 +35,14 @@
 
     .section{margin-bottom:20px}
     .h{font-size:12px;font-weight:800;color:#475569;letter-spacing:.12em;text-transform:uppercase;margin:8px 6px 6px 6px}
-    .order{border:1px solid var(--grid);border-radius:12px;padding:12px;margin:6px;background:#fff;display:grid;gap:8px;transition:all 0.2s}
-    .order:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1);transform:translateY(-1px)}
-    .order.urgent{border-color:#f59e0b;background:#fffbeb}
-    .order.rush{border-color:#ef4444;background:#fef2f2}
+    #dashboard{display:grid;grid-template-columns:1fr 1fr;gap:16px;height:calc(100vh - 56px);padding:20px}
+    #ordersColumn,#machinesColumn{display:flex;flex-direction:column;gap:12px;overflow:auto}
+
+    .order-card,.order{border:1px solid var(--grid);border-radius:12px;padding:12px;background:var(--card);display:grid;gap:8px;transition:box-shadow .2s,transform .2s;cursor:grab}
+    .order-card:hover,.order:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1);transform:translateY(-1px)}
+    .order-card.active,.order.active{border-color:var(--brand);box-shadow:0 0 0 2px var(--ring)}
+    .order-card.urgent,.order.urgent{border-color:#f59e0b;background:#fffbeb}
+    .order-card.rush,.order.rush{border-color:#ef4444;background:#fef2f2}
 
     .badgel{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
     .tag{font-size:11px;padding:3px 8px;border:1px solid var(--grid);border-radius:999px;background:#f1f5f9;color:#334155;font-weight:600}
@@ -52,11 +50,29 @@
     .tag.urgent{background:#fef3c7;border-color:#fcd34d;color:#92400e}
     .tag.completed{background:#d1fae5;border-color:#86efac;color:#065f46}
 
-    .machine-card{border:1px solid var(--grid);border-radius:12px;padding:12px;margin:6px;background:#fff;transition:all 0.2s}
-    .machine-card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1)}
-    .machine-card.drag-over{box-shadow:0 0 0 2px #0b67c2 inset}
-    .machine-card.drop-success{border-color:#10b981;background:#f0fdf4}
-    .machine-card.drop-fail{border-color:#ef4444;background:#fef2f2}
+/* merged .machine-card styles */
+.machine-card{
+  border:1px solid var(--grid);
+  border-radius:12px;
+  padding:12px;
+  margin:6px;
+  background:var(--card);
+  transition:box-shadow .2s, transform .2s;
+  cursor:grab;
+}
+.machine-card:hover{
+  box-shadow:0 4px 12px rgba(0,0,0,0.1);
+  transform:translateY(-1px);
+}
+.machine-card.active{
+  border-color:var(--brand);
+  box-shadow:0 0 0 2px var(--ring);
+}
+/* drag & drop feedback */
+.machine-card.drag-over{ box-shadow:0 0 0 2px #0b67c2 inset; }
+.machine-card.drop-success{ border-color:var(--good); background:#f0fdf4; }
+.machine-card.drop-fail{ border-color:var(--bad); background:#fef2f2; }
+
     .machine-price{color:var(--bad);font-weight:700}
     .machine-specs{font-size:12px;color:var(--muted);margin:6px 0}
 
@@ -95,8 +111,10 @@
 
     [aria-live]{position:fixed;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}
 
+    .dragging{opacity:0.6;cursor:grabbing!important}
+    .drop-target{outline:2px dashed var(--brand);outline-offset:2px}
+
     @media (max-width: 1200px) {
-      #worldWrap{right:320px}
       #sidebar{width:320px}
     }
     @media (prefers-reduced-motion: reduce) {
@@ -178,6 +196,7 @@
   <div id="tip" class="overlay-tip"></div>
   <div class="help" title="Keyboard shortcuts">
     <div><strong>Keys:</strong> <kbd>Space</kbd>/<kbd>P</kbd> Pause • <kbd>1-4</kbd> Tabs • <kbd>A</kbd> Add Order • <kbd>Ctrl/⌘+S</kbd> Save • <kbd>Esc</kbd> Cancel Mode</div>
+    <div>Drag orders onto machines to assign them</div>
   </div>
 
 <script>
@@ -278,7 +297,9 @@
   }
 
   function pickWeighted(arr, key) {
+    if (arr.length === 0) return null;
     const total = arr.reduce((a, b) => a + b[key], 0);
+    if (total === 0) return null;
     let r = Math.random() * total;
     for (const it of arr) { r -= it[key]; if (r <= 0) return it; }
     return arr[arr.length - 1];
@@ -286,6 +307,7 @@
 
   function generateOrder() {
     const type = pickWeighted(ORDER_TYPES, 'weight');
+    if (!type) return null;
     const id = Math.floor(1000 + Math.random() * 9000);
 
     let priority = 'Normal';
@@ -314,6 +336,16 @@
     state.orderBook[id] = order;
     return order;
   }
+
+  const HUD_UPDATE_THRESHOLD = 0.5; // in-game minutes
+  let lastHUD = {
+    minutes: -Infinity,
+    money: null,
+    energyPct: null,
+    energyCost: null,
+    reputation: null,
+    running: null
+  };
 
   function tick(delta) {
     if (!state.running) return;
@@ -350,7 +382,15 @@
 
     if (Math.random() < (0.001 + state.reputation * 0.0001) * delta) generateOrder();
 
-    updateHUD();
+    const timeChanged = Math.abs(state.minutes - lastHUD.minutes) >= HUD_UPDATE_THRESHOLD;
+    const moneyChanged = state.money !== lastHUD.money;
+    const energyChanged = Math.round(state.energyPct) !== lastHUD.energyPct;
+    const energyCostChanged = Math.round(state.energyCostToday * 100) / 100 !== lastHUD.energyCost;
+    const repChanged = state.reputation !== lastHUD.reputation;
+    const runningChanged = state.running !== lastHUD.running;
+    if (timeChanged || moneyChanged || energyChanged || energyCostChanged || repChanged || runningChanged) {
+      updateHUD();
+    }
     draw();
   }
 
@@ -476,6 +516,14 @@
     const dayProgress = Math.max(0, Math.min(1, (state.minutes - 360) / (16 * 60)));
     $('#dayFill').style.width = `${dayProgress * 100}%`;
     $('#paused').classList.toggle('show', !state.running);
+    lastHUD = {
+      minutes: state.minutes,
+      money: state.money,
+      energyPct: Math.round(state.energyPct),
+      energyCost: Math.round(state.energyCostToday * 100) / 100,
+      reputation: state.reputation,
+      running: state.running
+    };
   }
 
   let currentTab = 'orders';
@@ -543,7 +591,7 @@
         `;
 
         el.querySelector('.btn-assign').addEventListener('click', () => {
-          state.mode = 'assign'; selectingOrder = order; showTip('Click an idle machine to assign this order. Esc to cancel.');
+          state.mode = 'assign'; selectingOrder = order; showTip('Drag this order onto an idle machine. Esc to cancel.');
         });
         el.querySelector('.btn-cancel').addEventListener('click', () => {
           const penalty = Math.round(order.pay * 0.1);
@@ -946,7 +994,15 @@
   function save() {
     const { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades } = state;
     const saveData = { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades, savedAt: Date.now() };
-    localStorage.setItem('cozyLaundryEnhanced', JSON.stringify(saveData)); showNotification('Game saved successfully!', 'success');
+    try {
+      localStorage.setItem('cozyLaundryEnhanced', JSON.stringify(saveData));
+      showNotification('Game saved successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to save game:', err);
+      showNotification('Failed to save game', 'error');
+      const btn = $('#save');
+      if (btn) btn.disabled = true;
+    }
   }
   function load() {
     try {
@@ -957,13 +1013,27 @@
     } catch (err) { console.error('Failed to load save:', err); showNotification('Failed to load save file', 'error'); return false; }
   }
 
+  function storageAvailable() {
+    try {
+      const test = '__storage_test__';
+      localStorage.setItem(test, '1');
+      localStorage.removeItem(test);
+      return true;
+    } catch (err) {
+      console.error('Local storage unavailable:', err);
+      return false;
+    }
+  }
+
   // ===== UI bindings / tips =====
   function updatePauseButton(){ const btn = $('#pause'); btn.textContent = state.running ? '⏸ Pause' : '▶ Resume'; btn.setAttribute('aria-pressed', String(state.running)); }
   function togglePause(){ state.running = !state.running; updatePauseButton(); updateHUD(); }
   function showTip(msg){ const t = $('#tip'); t.textContent = msg; t.classList.add('show'); }
   function hideTip(){ $('#tip').classList.remove('show'); }
 
-  $('#save').addEventListener('click', save);
+  const saveBtn = $('#save');
+  if (storageAvailable()) saveBtn.addEventListener('click', save);
+  else { saveBtn.disabled = true; showNotification('Saving unavailable', 'error'); }
   $('#newday').addEventListener('click', () => { if (state.minutes <= 6*60) state.minutes = 6*60; state.running = true; updatePauseButton(); updateHUD(); });
   $('#pause').addEventListener('click', togglePause);
 
