@@ -198,7 +198,7 @@
     <div><strong>Keys:</strong> <kbd>Space</kbd>/<kbd>P</kbd> Pause • <kbd>1-4</kbd> Tabs • <kbd>A</kbd> Add Order • <kbd>Ctrl/⌘+S</kbd> Save • <kbd>Esc</kbd> Cancel Mode</div>
     <div>Drag orders onto machines to assign them</div>
   </div>
-
+<script src="js/utils.js"></script>
 <script>
 ;(() => {
   // ===== Helpers =====
@@ -294,15 +294,6 @@
       notification.style.animation = 'slideIn 0.3s ease reverse';
       setTimeout(() => notification.remove(), 300);
     }, duration);
-  }
-
-  function pickWeighted(arr, key) {
-    if (arr.length === 0) return null;
-    const total = arr.reduce((a, b) => a + b[key], 0);
-    if (total === 0) return null;
-    let r = Math.random() * total;
-    for (const it of arr) { r -= it[key]; if (r <= 0) return it; }
-    return arr[arr.length - 1];
   }
 
   function generateOrder() {
