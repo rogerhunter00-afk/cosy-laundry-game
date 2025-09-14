@@ -7,11 +7,28 @@ assert.strictEqual(pickWeighted([{ weight: 0 }, { weight: 0 }], 'weight'), null,
 
 // Negative weights
 assert.strictEqual(pickWeighted([{ weight: -1 }], 'weight'), null, 'negative weight returns null');
-assert.strictEqual(pickWeighted([{ weight: 2 }, { weight: -2 }], 'weight'), null, 'mixed negative weights return null');
+const mixedNegative = [{ weight: 2 }, { weight: -2 }];
+assert.strictEqual(pickWeighted(mixedNegative, 'weight'), mixedNegative[0], 'negative weights are skipped');
 
 // Missing weights
 const missing = [{ weight: 1 }, { value: 2 }];
-assert.strictEqual(pickWeighted(missing, 'weight'), missing[1], 'missing weights default to last element');
+assert.strictEqual(pickWeighted(missing, 'weight'), missing[0], 'items missing weight are skipped');
+
+// Invalid weights (NaN, Infinity, strings, non-positive)
+const invalid = [
+  { weight: 1 },
+  { weight: NaN },
+  { weight: Infinity },
+  { weight: -Infinity },
+  { weight: '2' },
+  { weight: -1 },
+  { weight: 0 },
+];
+assert.strictEqual(pickWeighted(invalid, 'weight'), invalid[0], 'invalid weights are skipped');
+
+// All invalid weights
+const allInvalid = [{}, { weight: 'x' }, { weight: NaN }];
+assert.strictEqual(pickWeighted(allInvalid, 'weight'), null, 'all invalid weights return null');
 
 // Deterministic behavior via mock Math.random
 const originalRandom = Math.random;
