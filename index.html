@@ -175,6 +175,7 @@
   <div id="tip" class="overlay-tip"></div>
   <div class="help" title="Keyboard shortcuts">
     <div><strong>Keys:</strong> <kbd>Space</kbd>/<kbd>P</kbd> Pause • <kbd>1-4</kbd> Tabs • <kbd>A</kbd> Add Order • <kbd>Ctrl/⌘+S</kbd> Save • <kbd>Esc</kbd> Cancel Mode</div>
+    <div>Drag orders onto machines to assign them</div>
   </div>
 
 <script>
@@ -562,7 +563,7 @@
         `;
 
         el.querySelector('.btn-assign').addEventListener('click', () => {
-          state.mode = 'assign'; selectingOrder = order; showTip('Click an idle machine to assign this order. Esc to cancel.');
+          state.mode = 'assign'; selectingOrder = order; showTip('Drag this order onto an idle machine. Esc to cancel.');
         });
         el.querySelector('.btn-cancel').addEventListener('click', () => {
           const penalty = Math.round(order.pay * 0.1);
