@@ -1,1 +1,892 @@
+;(() => {
+  // ===== Helpers =====
+  const $  = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const fmtMoney = n => `£${Math.round(n).toLocaleString()}`;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
 
+  // ===== State =====
+  const state = {
+    version: 11,
+    day: 1,
+    minutes: 6 * 60,
+    running: false,
+    speed: 1,
+    baseRate: 0.7,
+
+    // Financial
+    money: 1500,
+    energyPct: 100,
+    energyCostToday: 0,
+    totalEarnings: 0,
+
+    // Progress tracking
+    reputation: 0,
+    doneToday: 0,
+    breakdownsToday: 0,
+    totalCompleted: 0,
+    customerSatisfaction: 100,
+
+    // Core game data
+    orders: [],
+    orderBook: {},
+    completedOrders: [],
+
+    // World
+    tiles: { w: 40, h: 24, size: 64 },
+    entities: [],
+
+    // Camera & interaction
+    camera: { x: 0, y: 0, zoom: 1 },
+    mode: 'inspect',
+    build: { kind: 'washer' },
+    hovered: null,
+    selected: null,
+
+    // Upgrades
+    upgrades: {
+      efficiency: 0,
+      powerSaving: 0,
+      reliability: 0,
+      reputation: 0,
+      automation: 0
+    }
+  };
+
+  const ORDER_TYPES = [
+    { key:'towels', label:'Hotel Towels', pay: 45, washerMin: 90, dryerMin: 80, foldMin: 50, weight: 1.2 },
+    { key:'sheets', label:'Bed Sheets', pay: 65, washerMin: 110, dryerMin: 100, foldMin: 80, weight: 1.0 },
+    { key:'scrubs', label:'Medical Scrubs', pay: 75, washerMin: 95, dryerMin: 90, foldMin: 70, weight: 0.8 },
+    { key:'duvets', label:'Duvets & Comforters', pay: 120, washerMin: 180, dryerMin: 160, foldMin: 100, weight: 0.4 },
+    { key:'uniforms', label:'Work Uniforms', pay: 55, washerMin: 85, dryerMin: 75, foldMin: 60, weight: 0.9 },
+    { key:'delicates', label:'Delicate Items', pay: 85, washerMin: 120, dryerMin: 110, foldMin: 90, weight: 0.5 }
+  ];
+
+  const MACHINE_TYPES = {
+    washer:      { label:'Industrial Washer', w:2, h:2, power:2.5, speed:1,   breakdown:0.002,  color:'#60a5fa', cost: 800,  description: 'Heavy-duty washing machine' },
+    dryer:       { label:'Tumble Dryer',      w:2, h:2, power:3.2, speed:1,   breakdown:0.0025, color:'#f59e0b', cost: 750,  description: 'High-efficiency dryer' },
+    folder:      { label:'Folding Station',   w:1, h:2, power:1.2, speed:1,   breakdown:0.0015, color:'#10b981', cost: 300,  description: 'Manual folding workspace' },
+    express_washer: { label:'Express Washer', w:2, h:2, power:3.5, speed:1.5, breakdown:0.003,  color:'#8b5cf6', cost: 1200, description: '50% faster but uses more power' },
+    auto_folder: { label:'Auto Folder',       w:2, h:2, power:2.0, speed:1.3, breakdown:0.002,  color:'#06b6d4', cost: 1500, description: 'Automated folding system' }
+  };
+
+  const UPGRADE_COSTS = {
+    efficiency: [500, 1000, 2000, 4000, 8000],
+    powerSaving: [400, 800, 1600, 3200, 6400],
+    reliability: [600, 1200, 2400, 4800, 9600],
+    reputation: [300, 600, 1200, 2400, 4800],
+    automation: [2000, 5000, 10000]
+  };
+
+  // SVG / viewport
+  const svg = $('#worldSvg');
+  const vp  = $('#viewport');
+
+  function showNotification(message, type = 'info', duration = 3000) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    setTimeout(() => {
+      notification.style.animation = 'slideIn 0.3s ease reverse';
+      setTimeout(() => notification.remove(), 300);
+    }, duration);
+  }
+
+  function generateOrder() {
+    const type = pickWeighted(ORDER_TYPES, 'weight');
+    if (!type) return null;
+    const id = Math.floor(1000 + Math.random() * 9000);
+
+    let priority = 'Normal';
+    let payMultiplier = 1;
+    const rnd = Math.random();
+    if (rnd < 0.1) { priority = 'Rush'; payMultiplier = 1.5; }
+    else if (rnd < 0.3) { priority = 'Urgent'; payMultiplier = 1.2; }
+
+    const dayMultiplier = 1 + (state.day - 1) * 0.1;
+
+    const order = {
+      id,
+      type: type.key,
+      label: type.label,
+      priority,
+      pay: Math.round(type.pay * payMultiplier * dayMultiplier),
+      stage: 'queue',
+      washerMin: Math.round(type.washerMin * dayMultiplier),
+      dryerMin: Math.round(type.dryerMin * dayMultiplier),
+      foldMin: Math.round(type.foldMin * dayMultiplier),
+      createdAt: state.minutes,
+      deadline: state.minutes + (priority === 'Rush' ? 240 : priority === 'Urgent' ? 360 : 480)
+    };
+
+    state.orders.push(order);
+    state.orderBook[id] = order;
+    return order;
+  }
+
+  const HUD_UPDATE_THRESHOLD = 0.5; // in-game minutes
+  let lastHUD = {
+    minutes: -Infinity,
+    money: null,
+    energyPct: null,
+    energyCost: null,
+    reputation: null,
+    running: null
+  };
+
+  function tick(delta) {
+    if (!state.running) return;
+
+    state.minutes += delta * state.speed;
+
+    if (state.minutes >= 22 * 60) { endDay(); return; }
+
+    for (const entity of state.entities) {
+      if (entity.broken || !entity.job) continue;
+
+      const efficiencyBonus = 1 + (state.upgrades.efficiency * 0.15);
+      const job = entity.job;
+      const baseSpeed = entity.speed * efficiencyBonus;
+
+      entity.progress += delta * baseSpeed;
+
+      const powerReduction = 1 - (state.upgrades.powerSaving * 0.1);
+      const energyUse = (entity.power * delta * powerReduction) / 60;
+      state.energyPct = Math.max(0, state.energyPct - energyUse * 0.4);
+      state.energyCostToday += energyUse * 0.18;
+
+      // framerate-independent breakdown probability
+      const perSec = MACHINE_TYPES[entity.kind].breakdown * (1 - state.upgrades.reliability * 0.2);
+      const p = 1 - Math.exp(-perSec * delta);
+      if (Math.random() < p) {
+        entity.broken = true; state.breakdownsToday++; showNotification(`${MACHINE_TYPES[entity.kind].label} broke down!`, 'error');
+      }
+
+      if (entity.progress >= job.req) finishStage(entity);
+    }
+
+    if (state.upgrades.automation > 0) autoAssignOrders();
+
+    if (Math.random() < (0.001 + state.reputation * 0.0001) * delta) generateOrder();
+
+    const timeChanged = Math.abs(state.minutes - lastHUD.minutes) >= HUD_UPDATE_THRESHOLD;
+    const moneyChanged = state.money !== lastHUD.money;
+    const energyChanged = Math.round(state.energyPct) !== lastHUD.energyPct;
+    const energyCostChanged = Math.round(state.energyCostToday * 100) / 100 !== lastHUD.energyCost;
+    const repChanged = state.reputation !== lastHUD.reputation;
+    const runningChanged = state.running !== lastHUD.running;
+    if (timeChanged || moneyChanged || energyChanged || energyCostChanged || repChanged || runningChanged) {
+      updateHUD();
+    }
+    draw();
+  }
+
+  function finishStage(entity) {
+    const job = entity.job; entity.job = null; entity.progress = 0;
+    const order = state.orderBook[job.id]; if (!order) return;
+
+    if (job.stage === 'wash') {
+      order.stage = 'dry';
+      tryEnqueue(['dryer'], order, order.dryerMin);
+    } else if (job.stage === 'dry') {
+      order.stage = 'fold';
+      tryEnqueue(['folder','auto_folder'], order, order.foldMin);
+    } else {
+      completeOrder(order);
+    }
+    renderOrders();
+  }
+
+  function completeOrder(order) {
+    const timeTaken = state.minutes - order.createdAt;
+    const timeBonus = timeTaken < order.deadline ? Math.round(order.pay * 0.1) : 0;
+    const reputationBonus = 1 + (state.upgrades.reputation * 0.2);
+    const totalPay = order.pay + timeBonus;
+    const repGain = Math.round((order.priority === 'Rush' ? 3 : order.priority === 'Urgent' ? 2 : 1) * reputationBonus);
+
+    state.money += totalPay; state.totalEarnings += totalPay; state.reputation += repGain;
+    state.doneToday++; state.totalCompleted++;
+
+    if (timeTaken < order.deadline) state.customerSatisfaction = Math.min(100, state.customerSatisfaction + 1);
+    else state.customerSatisfaction = Math.max(0, state.customerSatisfaction - 3);
+
+    state.completedOrders.unshift({...order, completedAt: state.minutes, totalPay, repGain});
+    if (state.completedOrders.length > 20) state.completedOrders.pop();
+
+    delete state.orderBook[order.id];
+
+    showNotification(timeBonus > 0 ? `Order completed! ${fmtMoney(totalPay)} (+${fmtMoney(timeBonus)} time bonus)` : `Order completed! ${fmtMoney(totalPay)}`, 'success');
+  }
+
+  function tryEnqueue(kind, order, req) {
+    const validKinds = Array.isArray(kind) ? kind : [kind];
+    for (const k of validKinds) {
+      const target = state.entities.find(e => e.kind === k && !e.broken && !e.job);
+      if (target) { assignJob(target, order, req); return true; }
+    }
+    // re-queue to BACK to avoid starvation
+    state.orders.push(order);
+    return false;
+  }
+
+  function assignJob(entity, order, req) {
+    const stage = entity.kind.includes('washer') ? 'wash' : entity.kind.includes('dryer') ? 'dry' : 'fold';
+    entity.job = { id: order.id, label: order.label, stage, req: Math.round(req * (1 - state.upgrades.efficiency * 0.1)) };
+    entity.progress = 0;
+  }
+
+  function autoAssignOrders() {
+    if (!state.orders.length) return;
+    const byStage = stage => state.orders.filter(o => o.stage === stage);
+
+    // queue → washing
+    for (const o of byStage('queue')) {
+      const m = state.entities.find(e => (e.kind === 'washer' || e.kind === 'express_washer') && !e.broken && !e.job);
+      if (m) { assignJob(m, o, o.washerMin); o.stage = 'washing'; state.orders.splice(state.orders.indexOf(o),1); }
+    }
+    // dry → drying
+    for (const o of byStage('dry')) {
+      const m = state.entities.find(e => e.kind === 'dryer' && !e.broken && !e.job);
+      if (m) { assignJob(m, o, o.dryerMin); o.stage = 'drying'; state.orders.splice(state.orders.indexOf(o),1); }
+    }
+    // fold → folding
+    for (const o of byStage('fold')) {
+      const m = state.entities.find(e => (e.kind === 'folder' || e.kind === 'auto_folder') && !e.broken && !e.job);
+      if (m) { assignJob(m, o, o.foldMin); o.stage = 'folding'; state.orders.splice(state.orders.indexOf(o),1); }
+    }
+  }
+
+  function endDay() {
+    state.running = false;
+    const inProgress = state.entities.filter(e=>e.job).length;
+    const efficiency = state.doneToday + inProgress > 0 ? Math.round((state.doneToday / (state.doneToday + inProgress)) * 100) : 0;
+    const profit = state.totalEarnings - state.energyCostToday;
+
+    showNotification(`Day ${state.day} complete! ${state.doneToday} orders, ${efficiency}% efficiency, ${fmtMoney(profit)} profit`, 'success', 5000);
+
+    state.day++; state.doneToday = 0; state.breakdownsToday = 0; state.energyCostToday = 0; state.totalEarnings = 0;
+    state.minutes = 6 * 60; state.energyPct = Math.min(100, state.energyPct + 30);
+
+    const newOrderCount = Math.min(8, 3 + Math.floor(state.day / 3) + Math.floor(state.reputation / 10));
+    for (let i = 0; i < newOrderCount; i++) generateOrder();
+
+    updateHUD(); renderCurrentTab();
+  }
+
+  function placeDefaultMachines() {
+    if (state.entities.length) return;
+    addEntity('washer', 3, 4);
+    addEntity('washer', 6, 4);
+    addEntity('dryer', 10, 4);
+    addEntity('folder', 14, 5);
+    for (let i = 0; i < 3; i++) generateOrder();
+  }
+
+  function addEntity(kind, gx, gy) {
+    const type = MACHINE_TYPES[kind]; if (!type) return false;
+    const entity = {
+      id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+      kind, x: gx, y: gy, w: type.w, h: type.h, rot: 0,
+      speed: type.speed, power: type.power, broken: false,
+      progress: 0, job: null, efficiency: 1, lastMaintenance: state.minutes
+    };
+    state.entities.push(entity); return true;
+  }
+
+  function renderDashboard() {
+    const cashEl = $('#dashboard-cash');
+    if (!cashEl) return;
+    cashEl.textContent = fmtMoney(state.money);
+    $('#dashboard-energy').textContent = Math.round(state.energyPct) + '%';
+    $('#dashboard-reputation').textContent = state.reputation;
+    $('#dashboard-orders').textContent = state.orders.length;
+  }
+
+  function updateHUD() {
+    const hh = Math.floor(state.minutes / 60);
+    const mm = String(Math.floor(state.minutes % 60)).padStart(2, '0');
+    $('#dayLabel').textContent = `Day ${state.day} — ${String(hh).padStart(2, '0')}:${mm}`;
+    $('#cash').textContent = `💰 ${fmtMoney(state.money)}`;
+    $('#energy').textContent = `⚡ ${Math.round(state.energyPct)}% (£${state.energyCostToday.toFixed(2)})`;
+    $('#reputation').textContent = `⭐ ${state.reputation}`;
+    const dayProgress = Math.max(0, Math.min(1, (state.minutes - 360) / (16 * 60)));
+    $('#dayFill').style.width = `${dayProgress * 100}%`;
+    $('#paused').classList.toggle('show', !state.running);
+    renderDashboard();
+    lastHUD = {
+      minutes: state.minutes,
+      money: state.money,
+      energyPct: Math.round(state.energyPct),
+      energyCost: Math.round(state.energyCostToday * 100) / 100,
+      reputation: state.reputation,
+      running: state.running
+    };
+  }
+
+  let currentTab = 'orders';
+  let selectingOrder = null;
+
+  function renderCurrentTab() {
+    switch(currentTab) {
+      case 'orders': renderOrders(); break;
+      case 'build': renderBuild(); break;
+      case 'upgrades': renderUpgrades(); break;
+      case 'stats': renderStats(); break;
+    }
+  }
+
+  function renderOrders() {
+    const host = $('#panel'); if (currentTab !== 'orders') return; host.innerHTML = '';
+
+    const activeSection = document.createElement('div');
+    activeSection.className = 'section';
+    activeSection.innerHTML = '<div class="h">Active Orders</div>';
+
+    if (state.orders.length === 0) {
+      const empty = document.createElement('div');
+      empty.textContent = 'No pending orders. Orders will arrive automatically based on your reputation.';
+      empty.style.cssText = 'color:#64748b;padding:12px;text-align:center;font-style:italic';
+      activeSection.appendChild(empty);
+    } else {
+      const priorityOrder = { 'Rush': 3, 'Urgent': 2, 'Normal': 1 };
+      const sortedOrders = [...state.orders].sort((a, b) => (priorityOrder[b.priority]-priorityOrder[a.priority]) || (a.deadline - b.deadline));
+
+      sortedOrders.forEach(order => {
+        const el = document.createElement('div');
+        el.className = `order ${order.priority.toLowerCase()}`;
+        el.draggable = true;
+        el.addEventListener('dragstart', (ev) => {
+          ev.dataTransfer.setData('text/plain', String(order.id));
+        });
+
+        const timeLeft = Math.max(0, order.deadline - state.minutes);
+        const hoursLeft = Math.floor(timeLeft / 60);
+        const minutesLeft = Math.floor(timeLeft % 60);
+        const isUrgent = timeLeft < 60;
+
+        el.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong>#${order.id} — ${order.label}</strong>
+            <div class="badgel">
+              <span class="tag ${order.priority.toLowerCase()}">${order.priority}</span>
+              ${order.priority === 'Rush' ? '<span class="tag">+50% Pay</span>' : ''}
+              ${order.priority === 'Urgent' ? '<span class="tag">+20% Pay</span>' : ''}
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0">
+            <span style="color:${isUrgent ? '#ef4444' : '#6b7280'}">
+              ${order.stage === 'queue' ? 'Awaiting assignment' : order.stage === 'dry' ? 'Ready for drying' : order.stage === 'fold' ? 'Ready for folding' : order.stage}
+            </span>
+            <span style="color:${isUrgent ? '#ef4444' : '#10b981'};font-weight:600">
+              ${fmtMoney(order.pay)} • ${hoursLeft}h ${minutesLeft}m left
+            </span>
+          </div>
+          <div class="badgel">
+            <button class="btn ghost btn-assign">🎯 Assign</button>
+            <button class="btn ghost btn-cancel">❌ Cancel</button>
+          </div>
+        `;
+
+        el.querySelector('.btn-assign').addEventListener('click', () => {
+          state.mode = 'assign'; selectingOrder = order; showTip('Drag this order onto an idle machine. Esc to cancel.');
+        });
+        el.querySelector('.btn-cancel').addEventListener('click', () => {
+          const penalty = Math.round(order.pay * 0.1);
+          state.money = Math.max(0, state.money - penalty);
+          state.customerSatisfaction = Math.max(0, state.customerSatisfaction - 5);
+          state.orders.splice(state.orders.indexOf(order), 1);
+          delete state.orderBook[order.id];
+          showNotification(`Order cancelled. Penalty: ${fmtMoney(penalty)}`, 'warning');
+          renderOrders(); updateHUD();
+        });
+        activeSection.appendChild(el);
+      });
+    }
+    host.appendChild(activeSection);
+
+    const actionsSection = document.createElement('div');
+    actionsSection.className = 'section';
+    actionsSection.innerHTML = `
+      <div class="h">Quick Actions</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px">
+        <button class="btn ghost" id="addOrderBtn">➕ Add Order</button>
+        <button class="btn ghost" id="autoAssignBtn">🤖 Auto Assign</button>
+      </div>`;
+    actionsSection.querySelector('#addOrderBtn').addEventListener('click', () => { generateOrder(); renderOrders(); });
+    actionsSection.querySelector('#autoAssignBtn').addEventListener('click', () => { autoAssignOrders(); showNotification('Auto-assigned available orders', 'success'); renderOrders(); });
+    host.appendChild(actionsSection);
+
+    if (state.completedOrders.length > 0) {
+      const completedSection = document.createElement('div');
+      completedSection.className = 'section';
+      completedSection.innerHTML = '<div class="h">Recently Completed</div>';
+      state.completedOrders.slice(0, 5).forEach(order => {
+        const el = document.createElement('div'); el.className = 'order'; el.style.opacity = '0.8';
+        el.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong>#${order.id} — ${order.label}</strong>
+            <span class="tag completed">✓ Completed</span>
+          </div>
+          <div style="color:#6b7280">Earned ${fmtMoney(order.totalPay)} • +${order.repGain} reputation</div>`;
+        completedSection.appendChild(el);
+      });
+      host.appendChild(completedSection);
+    }
+  }
+
+  function renderMachineCard(entity, index) {
+    const type = MACHINE_TYPES[entity.kind];
+    const efficiency = Math.round(entity.efficiency * 100);
+    const el = document.createElement('div');
+    el.className = 'machine-card';
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <strong>${type.label} #${index + 1}</strong>
+          <div class="machine-specs">Status: ${entity.broken ? '🔧 Broken' : entity.job ? '⚡ Working' : '⏸ Idle'}</div>
+          <div class="efficiency-bar"><div class="efficiency-fill" style="width:${efficiency}%"></div></div>
+          <div class="machine-specs">Efficiency: ${efficiency}%</div>
+        </div>
+        <div style="text-align:right">
+          ${entity.broken ? `<button class="btn danger">🔧 Repair (£50)</button>` : `<button class="btn ghost">📍 Locate</button>`}
+        </div>
+      </div>`;
+    const button = el.querySelector('button');
+    if (entity.broken) {
+      button.addEventListener('click', () => {
+        if (state.money >= 50) {
+          state.money -= 50; entity.broken = false; entity.efficiency = Math.min(1, entity.efficiency + 0.1);
+          showNotification('Machine repaired!', 'success'); renderBuild(); updateHUD();
+        } else showNotification('Not enough money to repair!', 'error');
+      });
+    } else {
+      button.addEventListener('click', () => { state.selected = entity.id; showNotification('Machine highlighted in factory view', 'info'); draw(); });
+    }
+
+    el.addEventListener('dragover', ev => { ev.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', () => { el.classList.remove('drag-over'); });
+    el.addEventListener('drop', ev => {
+      ev.preventDefault();
+      el.classList.remove('drag-over');
+      const orderId = parseInt(ev.dataTransfer.getData('text/plain'), 10);
+      const order = state.orderBook[orderId];
+      if (!order || entity.broken || entity.job) {
+        toast('Cannot assign order here');
+        el.classList.add('drop-fail'); setTimeout(() => el.classList.remove('drop-fail'), 600);
+        return;
+      }
+      const machineType = entity.kind.includes('washer') ? 'washer' : entity.kind.includes('dryer') ? 'dryer' : 'folder';
+      const validStage = (machineType === 'washer' && order.stage === 'queue') ||
+                         (machineType === 'dryer' && order.stage === 'dry') ||
+                         (machineType === 'folder' && order.stage === 'fold');
+      if (!validStage) {
+        toast('Order not ready for this machine');
+        el.classList.add('drop-fail'); setTimeout(() => el.classList.remove('drop-fail'), 600);
+        return;
+      }
+      const req = machineType === 'washer' ? order.washerMin : machineType === 'dryer' ? order.dryerMin : order.foldMin;
+      assignJob(entity, order, req);
+      order.stage = machineType === 'washer' ? 'washing' : machineType === 'dryer' ? 'drying' : 'folding';
+      const idx = state.orders.findIndex(o => o.id === order.id);
+      if (idx > -1) state.orders.splice(idx, 1);
+      renderBuild();
+      renderOrders();
+      draw();
+      toast(`Order #${order.id} assigned to ${type.label}`);
+      el.classList.add('drop-success'); setTimeout(() => el.classList.remove('drop-success'), 600);
+    });
+    return el;
+  }
+
+  function renderBuild() {
+    const host = $('#panel'); if (currentTab !== 'build') return; host.innerHTML = '';
+
+    const buildSection = document.createElement('div');
+    buildSection.className = 'section';
+    buildSection.innerHTML = '<div class="h">Available Machines</div>';
+
+    Object.entries(MACHINE_TYPES).forEach(([key, type]) => {
+      const canAfford = state.money >= type.cost;
+      const el = document.createElement('div');
+      el.className = 'machine-card'; el.style.opacity = canAfford ? '1' : '0.6';
+      el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <strong>${type.label}</strong>
+            <div class="machine-specs">${type.description}</div>
+            <div class="machine-specs">Size: ${type.w}×${type.h} • Power: ${type.power}kW • Speed: ${type.speed}×</div>
+          </div>
+          <div style="text-align:right">
+            <div class="machine-price">${fmtMoney(type.cost)}</div>
+            <button class="btn ${canAfford ? '' : 'ghost'}" ${!canAfford ? 'disabled' : ''}>
+              ${canAfford ? '🏗️ Build' : '💰 Need more money'}
+            </button>
+          </div>
+        </div>`;
+      if (canAfford) el.querySelector('button').addEventListener('click', () => { state.mode = 'build'; state.build.kind = key; showTip(`Building ${type.label}. Scroll to zoom, drag to pan. Click to place. Esc to cancel.`); });
+      buildSection.appendChild(el);
+    });
+    host.appendChild(buildSection);
+
+    const managementSection = document.createElement('div');
+    managementSection.className = 'section';
+    managementSection.innerHTML = '<div class="h">Machine Management</div>';
+
+    if (state.entities.length > 0) {
+      state.entities.forEach((entity, index) => {
+        const el = renderMachineCard(entity, index);
+        managementSection.appendChild(el);
+      });
+    } else {
+      const empty = document.createElement('div'); empty.textContent = 'No machines built yet. Start by building some washers and dryers!'; empty.style.cssText = 'color:#64748b;padding:12px;text-align:center;font-style:italic'; managementSection.appendChild(empty);
+    }
+    host.appendChild(managementSection);
+  }
+
+  function renderUpgrades() {
+    const host = $('#panel'); if (currentTab !== 'upgrades') return; host.innerHTML = '';
+
+    const upgradeSection = document.createElement('div');
+    upgradeSection.className = 'section';
+    upgradeSection.innerHTML = '<div class="h">Factory Upgrades</div>';
+
+    const upgradeDescriptions = {
+      efficiency: 'Reduces processing time for all stages',
+      powerSaving: 'Reduces energy consumption of all machines',
+      reliability: 'Reduces breakdown chance for all machines',
+      reputation: 'Increases reputation gained from completed orders',
+      automation: 'Automatically assigns orders to available machines'
+    };
+    const upgradeIcons = { efficiency:'⚡', powerSaving:'🔋', reliability:'🛡️', reputation:'⭐', automation:'🤖' };
+
+    Object.entries(state.upgrades).forEach(([key, level]) => {
+      const costs = UPGRADE_COSTS[key];
+      const maxLevel = costs.length;
+      const canUpgrade = level < maxLevel && state.money >= costs[level];
+      const nextCost = level < maxLevel ? costs[level] : null;
+
+      const el = document.createElement('div'); el.className = 'upgrade-section';
+      const progressPercent = (level / maxLevel) * 100;
+      const bonusPct = (key === 'efficiency' || key === 'reputation') ? 15 : (key === 'powerSaving' || key === 'reliability') ? 10 : 20;
+      el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div>
+            <strong>${upgradeIcons[key]} ${key.charAt(0).toUpperCase() + key.slice(1)}</strong>
+            <div style="font-size:12px;color:#6b7280;margin-top:2px">${upgradeDescriptions[key]}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-weight:600">Level ${level}/${maxLevel}</div>
+            ${nextCost ? `<button class="btn ${canUpgrade ? '' : 'ghost'}" ${!canUpgrade ? 'disabled' : ''}>${canUpgrade ? `Upgrade ${fmtMoney(nextCost)}` : `Need ${fmtMoney(nextCost)}`}</button>` : `<span class="tag completed">MAX</span>`}
+          </div>
+        </div>
+        <div class="efficiency-bar"><div class="efficiency-fill" style="width:${progressPercent}%"></div></div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">${level > 0 ? `Current bonus: ${key === 'automation' ? `${level}/3 levels` : `${level * bonusPct}%`}` : 'No bonus yet'}</div>`;
+
+      if (nextCost && canUpgrade) {
+        el.querySelector('button').addEventListener('click', () => { state.money -= nextCost; state.upgrades[key]++; showNotification(`${key.charAt(0).toUpperCase() + key.slice(1)} upgraded!`, 'success'); renderUpgrades(); updateHUD(); });
+      }
+      upgradeSection.appendChild(el);
+    });
+    host.appendChild(upgradeSection);
+  }
+
+  function renderStats() {
+    const host = $('#panel'); if (currentTab !== 'stats') return; host.innerHTML = '';
+
+    const dailySection = document.createElement('div'); dailySection.className = 'section'; dailySection.innerHTML = '<div class="h">Today\'s Performance</div>';
+    const dailyStats = document.createElement('div'); dailyStats.className = 'stats-grid';
+    dailyStats.innerHTML = `
+      <div class="stat-card"><div class="stat-value">${state.doneToday}</div><div class="stat-label">Orders Completed</div></div>
+      <div class="stat-card"><div class="stat-value">${fmtMoney(state.totalEarnings)}</div><div class="stat-label">Earnings</div></div>
+      <div class="stat-card"><div class="stat-value">${state.breakdownsToday}</div><div class="stat-label">Breakdowns</div></div>
+      <div class="stat-card"><div class="stat-value">${Math.round(state.customerSatisfaction)}%</div><div class="stat-label">Satisfaction</div></div>`;
+    dailySection.appendChild(dailyStats); host.appendChild(dailySection);
+
+    const overallSection = document.createElement('div'); overallSection.className = 'section'; overallSection.innerHTML = '<div class="h">Overall Statistics</div>';
+    const overallStats = document.createElement('div'); overallStats.className = 'stats-grid';
+    overallStats.innerHTML = `
+      <div class="stat-card"><div class="stat-value">${state.totalCompleted}</div><div class="stat-label">Total Orders</div></div>
+      <div class="stat-card"><div class="stat-value">${state.reputation}</div><div class="stat-label">Reputation</div></div>
+      <div class="stat-card"><div class="stat-value">${state.entities.length}</div><div class="stat-label">Machines</div></div>
+      <div class="stat-card"><div class="stat-value">${state.day}</div><div class="stat-label">Day</div></div>`;
+    overallSection.appendChild(overallStats); host.appendChild(overallSection);
+
+    if (state.entities.length > 0) {
+      const machineSection = document.createElement('div'); machineSection.className = 'section'; machineSection.innerHTML = '<div class="h">Machine Status</div>';
+      const machineTypes = {};
+      state.entities.forEach(entity => { const key = entity.kind; if (!machineTypes[key]) machineTypes[key] = { total: 0, working: 0, broken: 0 }; machineTypes[key].total++; if (entity.broken) machineTypes[key].broken++; else if (entity.job) machineTypes[key].working++; });
+      Object.entries(machineTypes).forEach(([kind, stats]) => {
+        const type = MACHINE_TYPES[kind]; const utilization = stats.total > 0 ? Math.round((stats.working / stats.total) * 100) : 0;
+        const el = document.createElement('div'); el.className = 'machine-card';
+        el.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <strong>${type.label}</strong>
+              <div class="machine-specs">${stats.total} total • ${stats.working} working • ${stats.broken} broken</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:18px;font-weight:600;color:${utilization > 80 ? '#10b981' : utilization > 50 ? '#f59e0b' : '#ef4444'}">${utilization}%</div>
+              <div style="font-size:12px;color:#6b7280">Utilization</div>
+            </div>
+          </div>`;
+        machineSection.appendChild(el);
+      });
+      host.appendChild(machineSection);
+    }
+  }
+
+  // ===== Tabs =====
+  function initializeTabs() {
+    $$('.tab').forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
+  }
+  function setTab(tab) {
+    currentTab = tab;
+    $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    renderCurrentTab();
+  }
+
+  // ===== Camera & input =====
+  const cam = state.camera; const tiles = state.tiles; let isPanning = false; let panStart = null;
+
+  function clientToSvg(evt) {
+    const m = svg.getScreenCTM(); if (!m) return { x: 0, y: 0 };
+    const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY; return pt.matrixTransform(m.inverse());
+  }
+  const svgToGrid = (x, y) => ({ gx: Math.floor((x - cam.x) / cam.zoom / tiles.size), gy: Math.floor((y - cam.y) / cam.zoom / tiles.size) });
+  const hitEntity = (gx, gy) => state.entities.find(e => gx >= e.x && gy >= e.y && gx < e.x + e.w && gy < e.y + e.h);
+
+  function canPlace(kind, gx, gy) {
+    const type = MACHINE_TYPES[kind]; if (!type) return false;
+    if (gx < 0 || gy < 0 || gx + type.w > tiles.w || gy + type.h > tiles.h) return false;
+    return !state.entities.some(e => !(gx + type.w <= e.x || e.x + e.w <= gx || gy + type.h <= e.y || e.y + e.h <= gy));
+  }
+
+  function tryPlace(gx, gy) {
+    const kind = state.build.kind; const type = MACHINE_TYPES[kind]; if (!type) return;
+    if (state.money < type.cost) { showNotification(`Need ${fmtMoney(type.cost)} to build ${type.label}`, 'error'); return; }
+    if (canPlace(kind, gx, gy)) { state.money -= type.cost; addEntity(kind, gx, gy); showNotification(`${type.label} built for ${fmtMoney(type.cost)}`, 'success'); updateHUD(); renderCurrentTab(); draw(); hideTip(); }
+    else showNotification('Cannot place machine here', 'error');
+  }
+
+  svg.addEventListener('mousedown', e => {
+    if (e.button === 1 || e.button === 2 || e.ctrlKey || e.metaKey || e.shiftKey) {
+      isPanning = true; panStart = { x: e.clientX, y: e.clientY, camX: cam.x, camY: cam.y }; e.preventDefault(); return;
+    }
+    const { x, y } = clientToSvg(e); const { gx, gy } = svgToGrid(x, y);
+    if (state.mode === 'build') { tryPlace(gx, gy); return; }
+    const entity = hitEntity(gx, gy);
+    if (state.mode === 'assign' && selectingOrder) {
+      if (entity && !entity.broken && !entity.job) {
+        const order = selectingOrder; const req = entity.kind.includes('washer') ? order.washerMin : entity.kind.includes('dryer') ? order.dryerMin : order.foldMin;
+        assignJob(entity, order, req);
+        const idx = state.orders.findIndex(x => x.id === order.id); if (idx > -1) state.orders.splice(idx, 1);
+        selectingOrder = null; state.mode = 'inspect';
+        showNotification(`Order assigned to ${MACHINE_TYPES[entity.kind].label}`, 'success');
+        hideTip(); renderOrders(); draw();
+      } else showNotification('Select an idle, working machine', 'warning');
+      return;
+    }
+    if (entity) { if (entity.broken) { const cost = 50; if (state.money >= cost) { state.money -= cost; entity.broken = false; entity.efficiency = Math.min(1, entity.efficiency + 0.05); showNotification(`Machine repaired for ${fmtMoney(cost)}`, 'success'); updateHUD(); draw(); } else showNotification(`Need ${fmtMoney(cost)} to repair`, 'error'); return; } state.selected = entity.id; draw(); }
+  });
+  svg.addEventListener('contextmenu', e => e.preventDefault());
+
+  window.addEventListener('mousemove', e => {
+    if (isPanning) {
+      const dx = (e.clientX - panStart.x) / cam.zoom; const dy = (e.clientY - panStart.y) / cam.zoom;
+      cam.x = clamp(panStart.camX - dx, 0, tiles.w * tiles.size - svg.clientWidth / cam.zoom);
+      cam.y = clamp(panStart.camY - dy, 0, tiles.h * tiles.size - svg.clientHeight / cam.zoom);
+      draw();
+    } else {
+      const { x, y } = clientToSvg(e); const { gx, gy } = svgToGrid(x, y); state.hovered = { gx, gy }; draw();
+    }
+  });
+  window.addEventListener('mouseup', () => { isPanning = false; });
+  svg.addEventListener('wheel', e => {
+    const oldZoom = cam.zoom; const newZoom = clamp(cam.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 0.3, 3);
+    if (newZoom !== oldZoom) { const { x, y } = clientToSvg(e); const wx = (x - cam.x) * (newZoom / oldZoom); const wy = (y - cam.y) * (newZoom / oldZoom); cam.x = x - wx; cam.y = y - wy; cam.zoom = newZoom; draw(); }
+  }, { passive: true });
+
+  function draw() {
+    vp.setAttribute('transform', `translate(${cam.x},${cam.y}) scale(${cam.zoom})`);
+    drawGrid(); drawPlacementPreview(); drawEntities();
+  }
+
+  function drawGrid() {
+    const tilesW = tiles.w * tiles.size; const tilesH = tiles.h * tiles.size;
+    let grid = document.getElementById('grid'); if (!grid) { grid = document.createElementNS('http://www.w3.org/2000/svg', 'g'); grid.setAttribute('id', 'grid'); vp.appendChild(grid); }
+    grid.innerHTML = '';
+    grid.appendChild(svgEl('rect', { x: 0, y: 0, width: tilesW, height: tilesH, fill: 'url(#gridGrad)' }));
+    const gridLines = svgEl('g', { stroke: '#e5e7eb', 'stroke-width': Math.max(0.5, 1 / cam.zoom) });
+    const step = cam.zoom < 0.5 ? 5 : 1;
+    for (let x = 0; x <= tiles.w; x += step) gridLines.appendChild(svgEl('line', { x1: x * tiles.size, y1: 0, x2: x * tiles.size, y2: tilesH }));
+    for (let y = 0; y <= tiles.h; y += step) gridLines.appendChild(svgEl('line', { x1: 0, y1: y * tiles.size, x2: tilesW, y2: y * tiles.size }));
+    grid.appendChild(gridLines);
+  }
+
+  function drawPlacementPreview() {
+    const previewId = 'placePreview'; let preview = document.getElementById(previewId);
+    if (state.mode === 'build' && state.hovered) {
+      const type = MACHINE_TYPES[state.build.kind]; if (!type) return;
+      const { gx, gy } = state.hovered; const canAfford = state.money >= type.cost; const canPlaceHere = canPlace(state.build.kind, gx, gy); const ok = canAfford && canPlaceHere;
+      if (!preview) { preview = svgEl('rect', { id: previewId }); vp.appendChild(preview); }
+      preview.setAttribute('x', gx * tiles.size); preview.setAttribute('y', gy * tiles.size);
+      preview.setAttribute('width', type.w * tiles.size); preview.setAttribute('height', type.h * tiles.size);
+      preview.setAttribute('fill', !canAfford ? 'rgba(156,163,175,.5)' : ok ? 'rgba(34,197,94,.4)' : 'rgba(239,68,68,.4)');
+      preview.setAttribute('stroke', !canAfford ? '#9ca3af' : ok ? '#22c55e' : '#ef4444');
+      preview.setAttribute('stroke-width', 2); preview.setAttribute('rx', 8);
+    } else if (preview) preview.remove();
+  }
+
+  function drawEntities() {
+    let ents = document.getElementById('ents'); if (!ents) { ents = svgEl('g', { id: 'ents' }); vp.appendChild(ents); }
+    ents.innerHTML = '';
+    const sorted = [...state.entities].sort((a,b)=> (a.id===state.selected) - (b.id===state.selected));
+    for (const entity of sorted) ents.appendChild(drawMachine(entity));
+  }
+
+  function drawMachine(entity) {
+    const type = MACHINE_TYPES[entity.kind];
+    const g = svgEl('g', { filter: 'url(#cardShadow)', style: entity.id === state.selected ? 'filter: url(#glow)' : '' });
+    const x = entity.x * tiles.size, y = entity.y * tiles.size, w = entity.w * tiles.size, h = entity.h * tiles.size;
+
+    const bodyColor = entity.broken ? '#fee2e2' : '#ffffff';
+    g.appendChild(svgEl('rect', { x: x + 4, y: y + 4, width: w - 8, height: h - 8, rx: 12, ry: 12, fill: bodyColor, stroke: '#cbd5e1', 'stroke-width': 2 }));
+    const headerColor = entity.broken ? '#fca5a5' : type.color;
+    g.appendChild(svgEl('rect', { x: x + 4, y: y + 4, width: w - 8, height: 28, rx: 10, ry: 10, fill: headerColor }));
+
+    g.appendChild(svgEl('text', { x: x + 16, y: y + 24, fill: '#fff', 'font-size': 14, 'font-family': 'ui-sans-serif', 'font-weight': '700' })).textContent = type.label.split(' ')[0];
+
+    let status = entity.broken ? 'BROKEN - Click to repair' : entity.job ? `${entity.job.label} (${entity.job.stage})` : 'Idle';
+    if (status.length > 20) status = status.substring(0, 17) + '...';
+    g.appendChild(svgEl('text', { x: x + 16, y: y + 46, fill: entity.broken ? '#dc2626' : '#1f2937', 'font-size': 12, 'font-family': 'ui-sans-serif' })).textContent = status;
+
+    if (entity.job && !entity.broken) {
+      const progress = Math.min(1, entity.progress / entity.job.req);
+      const barX = x + 12, barY = y + h - 32, barW = w - 24, barH = 14;
+      g.appendChild(svgEl('rect', { x: barX, y: barY, width: barW, height: barH, rx: 7, ry: 7, fill: '#e5e7eb' }));
+      if (progress > 0) g.appendChild(svgEl('rect', { x: barX, y: barY, width: barW * progress, height: barH, rx: 7, ry: 7, fill: state.running ? 'url(#progressBlue)' : '#cbd5e1' }));
+      const remaining = Math.max(0, entity.job.req - entity.progress);
+      const seconds = Math.ceil(remaining / Math.max(0.1, state.speed * entity.speed));
+      const minutes = Math.floor(seconds / 60), secs = seconds % 60, timeText = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
+      g.appendChild(svgEl('text', { x: barX + barW / 2, y: barY + 10, 'text-anchor': 'middle', fill: '#fff', 'font-size': 10, 'font-family': 'ui-sans-serif', 'font-weight': '600' })).textContent = `${Math.round(progress * 100)}% • ${timeText}`;
+    }
+
+    const efficiencyColor = entity.efficiency > 0.8 ? '#10b981' : entity.efficiency > 0.6 ? '#f59e0b' : '#ef4444';
+    g.appendChild(svgEl('circle', { cx: x + w - 16, cy: y + 20, r: 6, fill: efficiencyColor, stroke: '#fff', 'stroke-width': 2 }));
+
+    if (entity.job && !entity.broken && state.running) {
+      const indicator = svgEl('circle', { cx: x + w - 16, cy: y + h - 16, r: 4, fill: '#22c55e' });
+      const animate = svgEl('animate', { attributeName: 'opacity', values: '0.3;1;0.3', dur: '1s', repeatCount: 'indefinite' });
+      indicator.appendChild(animate); g.appendChild(indicator);
+    }
+
+    if (state.selected === entity.id) g.appendChild(svgEl('rect', { x: x + 2, y: y + 2, width: w - 4, height: h - 4, fill: 'none', stroke: '#0b67c2', 'stroke-width': 3, rx: 10, ry: 10, 'stroke-dasharray': '8,4' }));
+
+    return g;
+  }
+
+  function svgEl(tag, attrs) { const el = document.createElementNS('http://www.w3.org/2000/svg', tag); if (attrs) for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v); return el; }
+
+  // ===== Save / Load =====
+  function save() {
+    const { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades } = state;
+    const saveData = { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades, savedAt: Date.now() };
+    try {
+      localStorage.setItem('cozyLaundryEnhanced', JSON.stringify(saveData));
+      showNotification('Game saved successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to save game:', err);
+      showNotification('Failed to save game', 'error');
+      const btn = $('#save');
+      if (btn) btn.disabled = true;
+    }
+  }
+  function load() {
+    try {
+      const saved = localStorage.getItem('cozyLaundryEnhanced'); if (!saved) return false;
+      const data = JSON.parse(saved); if (data.version < state.version) showNotification('Save file from older version - some features may not work correctly', 'warning');
+      Object.assign(state, { ...state, ...data, running: false });
+      showNotification('Game loaded successfully!', 'success'); return true;
+    } catch (err) { console.error('Failed to load save:', err); showNotification('Failed to load save file', 'error'); return false; }
+  }
+
+  function storageAvailable() {
+    try {
+      const test = '__storage_test__';
+      localStorage.setItem(test, '1');
+      localStorage.removeItem(test);
+      return true;
+    } catch (err) {
+      console.error('Local storage unavailable:', err);
+      return false;
+    }
+  }
+
+  // ===== UI bindings / tips =====
+  function updatePauseButton(){ const btn = $('#pause'); btn.textContent = state.running ? '⏸ Pause' : '▶ Resume'; btn.setAttribute('aria-pressed', String(state.running)); }
+  function togglePause(){ state.running = !state.running; updatePauseButton(); updateHUD(); }
+  function showTip(msg){ const t = $('#tip'); t.textContent = msg; t.classList.add('show'); }
+  function hideTip(){ $('#tip').classList.remove('show'); }
+
+  const saveBtn = $('#save');
+  if (storageAvailable()) saveBtn.addEventListener('click', save);
+  else { saveBtn.disabled = true; showNotification('Saving unavailable', 'error'); }
+  $('#newday').addEventListener('click', () => { if (state.minutes <= 6*60) state.minutes = 6*60; state.running = true; updatePauseButton(); updateHUD(); });
+  $('#pause').addEventListener('click', togglePause);
+
+  $('#speed').addEventListener('input', (e) => { state.speed = parseFloat(e.target.value); $('#speedVal').textContent = state.speed.toFixed(1) + '×'; });
+
+  // ===== Toast =====
+  let toastTimer = null; function toast(message, duration = 2000) { const toastEl = $('#toast'); toastEl.textContent = message; toastEl.style.opacity = '1'; clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.style.opacity = '0'; }, duration); }
+
+  // ===== Game loop =====
+  let lastTime = performance.now(); function gameLoop(currentTime) { const deltaTime = (currentTime - lastTime) / 1000; lastTime = currentTime; const simDelta = deltaTime * state.baseRate; tick(simDelta); requestAnimationFrame(gameLoop); }
+
+  // ===== Init =====
+  function initialize() {
+    initializeTabs();
+    const loaded = load();
+    if (!loaded) placeDefaultMachines();
+    state.speed = parseFloat($('#speed').value); $('#speedVal').textContent = state.speed.toFixed(1) + '×';
+    updateHUD(); setTab('orders'); draw(); updatePauseButton();
+    requestAnimationFrame(gameLoop);
+    showNotification('🧺 Welcome to Cozy Laundry Enhanced!', 'success', 4000);
+  }
+  window.addEventListener('resize', () => { setTimeout(draw, 100); });
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    switch(e.key.toLowerCase()) {
+      case ' ': case 'p': e.preventDefault(); togglePause(); break;
+      case 'a': if (currentTab === 'orders') { generateOrder(); renderOrders(); } break;
+      case 's': if (e.ctrlKey || e.metaKey) { e.preventDefault(); save(); } break;
+      case 'escape': if (state.mode !== 'inspect') { state.mode = 'inspect'; selectingOrder = null; hideTip(); showNotification('Mode reset to inspect', 'info'); } break;
+      case '1': case '2': case '3': case '4': setTab(['orders','build','upgrades','stats'][parseInt(e.key)-1]); break;
+    }
+    if (selectingOrder && ['1','2','3'].includes(e.key)) {
+      const machineTypes = ['washer','dryer','folder']; const targetType = machineTypes[parseInt(e.key)-1];
+      const target = state.entities.find(entity => (entity.kind === targetType || entity.kind === `express_${targetType}` || entity.kind === `auto_${targetType}`) && !entity.broken && !entity.job);
+      if (target) {
+        const order = selectingOrder; const req = targetType === 'washer' ? order.washerMin : targetType === 'dryer' ? order.dryerMin : order.foldMin;
+        assignJob(target, order, req);
+        const idx = state.orders.findIndex(x => x.id === order.id); if (idx > -1) state.orders.splice(idx, 1);
+        selectingOrder = null; state.mode = 'inspect'; hideTip(); showNotification('Order assigned via keyboard shortcut!', 'success'); renderOrders(); draw();
+      } else showNotification(`No available ${targetType}`, 'warning');
+    }
+  });
+
+  initialize();
+
+  // Dev helpers
+  window.laundryGame = {
+    state,
+    addMoney: (amount) => { state.money += amount; updateHUD(); showNotification(`Added ${fmtMoney(amount)}`, 'success'); },
+    addReputation: (amount) => { state.reputation += amount; updateHUD(); showNotification(`Added ${amount} reputation`, 'success'); },
+    completeAllOrders: () => { state.orders.forEach(order => completeOrder(order)); state.orders = []; renderOrders(); },
+    breakAllMachines: () => { state.entities.forEach(entity => entity.broken = true); draw(); showNotification('All machines broken!', 'error'); },
+    fixAllMachines: () => { state.entities.forEach(entity => { entity.broken = false; entity.efficiency = 1; }); draw(); showNotification('All machines repaired!', 'success'); },
+    skipToNextDay: () => { state.minutes = 22 * 60; tick(0); }
+  };
+})();
+</script>
