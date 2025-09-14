@@ -275,7 +275,9 @@
   }
 
   function pickWeighted(arr, key) {
+    if (arr.length === 0) return null;
     const total = arr.reduce((a, b) => a + b[key], 0);
+    if (total === 0) return null;
     let r = Math.random() * total;
     for (const it of arr) { r -= it[key]; if (r <= 0) return it; }
     return arr[arr.length - 1];
@@ -283,6 +285,7 @@
 
   function generateOrder() {
     const type = pickWeighted(ORDER_TYPES, 'weight');
+    if (!type) return null;
     const id = Math.floor(1000 + Math.random() * 9000);
 
     let priority = 'Normal';
