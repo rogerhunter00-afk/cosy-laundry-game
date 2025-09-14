@@ -1,10 +1,11 @@
 function pickWeighted(arr, key) {
   if (!Array.isArray(arr) || arr.length === 0) return null;
 
-  const getWeight = (it) => {
-    const w = Number(it && it[key]);
-    return Number.isFinite(w) && w > 0 ? w : 0;
-  };
+    const getWeight = (it) => {
+      const raw = it && it[key];
+      if (typeof raw !== 'number') return 0;
+      return Number.isFinite(raw) && raw > 0 ? raw : 0;
+    };
 
   const total = arr.reduce((sum, it) => sum + getWeight(it), 0);
   if (total <= 0) return null;
