@@ -188,7 +188,7 @@
 
   // ===== State =====
   const state = {
-    version: 11,
+    version: 12,
     day: 1,
     minutes: 6 * 60,
     running: false,
@@ -216,6 +216,10 @@
     // World
     tiles: { w: 40, h: 24, size: 64 },
     entities: [],
+
+    // Dashboard layout
+    machineOrder: [],
+    machineColumns: {},
 
     // Camera & interaction
     camera: { x: 0, y: 0, zoom: 1 },
@@ -897,15 +901,17 @@
 
   // ===== Save / Load =====
   function save() {
-    const { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades } = state;
-    const saveData = { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, tiles, entities, upgrades, savedAt: Date.now() };
+    const { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, entities, upgrades, machineOrder, machineColumns } = state;
+    const saveData = { version, day, minutes, speed, baseRate, money, energyPct, energyCostToday, totalEarnings, reputation, doneToday, breakdownsToday, totalCompleted, customerSatisfaction, orders, orderBook, completedOrders, entities, upgrades, machineOrder, machineColumns, savedAt: Date.now() };
     localStorage.setItem('cozyLaundryEnhanced', JSON.stringify(saveData)); showNotification('Game saved successfully!', 'success');
   }
   function load() {
     try {
       const saved = localStorage.getItem('cozyLaundryEnhanced'); if (!saved) return false;
-      const data = JSON.parse(saved); if (data.version < state.version) showNotification('Save file from older version - some features may not work correctly', 'warning');
-      Object.assign(state, { ...state, ...data, running: false });
+      const data = JSON.parse(saved);
+      if (data.version < state.version) showNotification('Save file from older version - some features may not work correctly', 'warning');
+      const { tiles, camera, ...rest } = data;
+      Object.assign(state, { ...state, ...rest, running: false });
       showNotification('Game loaded successfully!', 'success'); return true;
     } catch (err) { console.error('Failed to load save:', err); showNotification('Failed to load save file', 'error'); return false; }
   }
