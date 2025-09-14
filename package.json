@@ -7,7 +7,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "node test/pickWeighted.test.js"
+    "test": "node test/pickWeighted.test.js && node test/orderGeneration.test.js && node test/assignJob.test.js && node test/saveLoad.test.js"
   },
   "keywords": [],
   "author": "",
