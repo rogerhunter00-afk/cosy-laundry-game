@@ -9,62 +9,58 @@
 </head>
 <body>
   <div id="app">
-    <header id="hud">
-      <div class="row">
-        <div class="badgel">
-          <strong style="font-size:16px">🧺 Cozy Laundry Enhanced</strong>
-          <span id="dayLabel" class="pill">Day 1 — 06:00</span>
-          <div class="pill">
-            <label for="speed">Speed</label>
-            <input id="speed" type="range" min="0.1" max="3" step="0.1" value="0.8" style="vertical-align:middle;margin:0 6px">
-            <span id="speedVal">0.8×</span>
-          </div>
-          <button id="pause" class="btn ghost" aria-pressed="false">⏸ Pause</button>
-        </div>
-        <div class="badgel">
-          <span id="cash" class="pill">💰 £1,000</span>
-          <span id="energy" class="pill" title="≈£0.18 per kWh">⚡ 100% (£0.00)</span>
-          <span id="reputation" class="pill">⭐ 0</span>
-          <button id="save" class="btn ghost">💾 Save</button>
-          <button id="newday" class="btn success">▶ Start Day</button>
-        </div>
+    <header id="toolbar">
+      <div class="toolbar-group">
+        <strong class="logo">🧺 Cozy Laundry</strong>
+        <span id="dayLabel" class="hud-pill">Day 1 — 06:00</span>
+        <div class="daybar"><span id="dayFill"></span></div>
       </div>
-      <div class="daybar"><span id="dayFill"></span></div>
+      <div class="toolbar-group toolbar-center">
+        <label class="speed-label" for="speed">Speed</label>
+        <input id="speed" type="range" min="0.1" max="3" step="0.1" value="0.8">
+        <span id="speedVal" class="hud-pill subtle">0.8×</span>
+      </div>
+      <div class="toolbar-group toolbar-right">
+        <span id="cash" class="hud-pill">💰 £1,000</span>
+        <span id="energy" class="hud-pill" title="≈£0.18 per kWh">⚡ 100% (£0.00)</span>
+        <span id="reputation" class="hud-pill">⭐ 0</span>
+        <button id="pause" class="btn ghost" aria-pressed="false">⏸ Pause</button>
+        <button id="newday" class="btn success">▶ Start Day</button>
+      </div>
     </header>
 
-    <div class="app-body">
-      <aside id="sidebar">
-        <div class="tabs">
-          <div class="tab active" data-tab="orders">📋 Orders</div>
-          <div class="tab" data-tab="build">🏗️ Build</div>
-          <div class="tab" data-tab="upgrades">⚡ Upgrades</div>
-          <div class="tab" data-tab="stats">📊 Stats</div>
+    <input type="checkbox" id="paletteToggle" class="palette-toggle-input" />
+    <div class="frame-grid">
+      <aside id="palette">
+        <div class="palette-header">
+          <span class="palette-title">Modes</span>
+          <label for="paletteToggle" class="palette-toggle-btn" aria-controls="palette" aria-label="Collapse build palette">⏴</label>
+        </div>
+        <div class="palette-tabs">
+          <button type="button" class="palette-tab tab active" data-tab="orders">
+            <span class="icon" aria-hidden="true">📋</span>
+            <span class="palette-label">Orders</span>
+          </button>
+          <button type="button" class="palette-tab tab" data-tab="build">
+            <span class="icon" aria-hidden="true">🏗️</span>
+            <span class="palette-label">Build</span>
+          </button>
+          <button type="button" class="palette-tab tab" data-tab="upgrades">
+            <span class="icon" aria-hidden="true">⚡</span>
+            <span class="palette-label">Upgrades</span>
+          </button>
+          <button type="button" class="palette-tab tab" data-tab="stats">
+            <span class="icon" aria-hidden="true">📊</span>
+            <span class="palette-label">Stats</span>
+          </button>
         </div>
         <div class="panel" id="panel"></div>
+        <div class="palette-actions">
+          <button id="save" class="btn ghost">💾 Save</button>
+        </div>
       </aside>
 
-      <main id="main">
-        <section id="dashboard">
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-value" id="dashboard-cash">£1,000</div>
-              <div class="stat-label">Cash</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="dashboard-energy">100%</div>
-              <div class="stat-label">Energy</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="dashboard-reputation">0</div>
-              <div class="stat-label">Reputation</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="dashboard-orders">0</div>
-              <div class="stat-label">Orders</div>
-            </div>
-          </div>
-        </section>
-
+      <main id="worldColumn">
         <section id="worldWrap">
           <svg id="worldSvg" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -100,6 +96,36 @@
           <div id="paused">⏸ Paused</div>
         </section>
       </main>
+
+      <aside id="statusPanel">
+        <section id="dashboard">
+          <h2 class="status-heading">Factory status</h2>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Cash</div>
+              <div class="stat-value" id="dashboard-cash">£1,000</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Energy</div>
+              <div class="stat-value" id="dashboard-energy">100%</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Reputation</div>
+              <div class="stat-value" id="dashboard-reputation">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Orders</div>
+              <div class="stat-value" id="dashboard-orders">0</div>
+            </div>
+          </div>
+        </section>
+        <section class="event-log">
+          <h2 class="status-heading">Event log</h2>
+          <ul id="eventFeed">
+            <li class="event-entry">No events yet — start your day!</li>
+          </ul>
+        </section>
+      </aside>
     </div>
   </div>
 
